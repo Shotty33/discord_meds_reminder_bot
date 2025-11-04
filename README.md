@@ -7,7 +7,7 @@ This project is a proof of concept and not a medical device. It should not be us
 ---
 
 ## 🚀 Overview  
-**Meds Reminder Bot** is a Discord bot that pings you when it’s time to take your meds — but not in a boring “please take 20mg now” way.
+**Meds Reminder Bot** is a chatbot that pings you when it’s time to take your meds — but not in a boring “please take 20mg now” way.
 
 You choose:
 - what the reminder is for,
@@ -35,27 +35,15 @@ It’s not a medical device. It’s:
 - 🔐 **Private by Default:** Reminders arrive in DMs. This is built for you, not for an employer, parent, or caregiver.
 - 🧩 **Extensible for AI:** The persona lines can be static or generated. The design supports plugging in an LLM later so Batman doesn’t repeat himself forever.
 
-
-## Requirements
-
-- discord
-- configparser==5.0.2
-- requests==2.26.0
-- transformers==4.16.2
-- logging
-- boto3
-
 ## 🧠 Architecture
 **Tech Stack**
 - **Language:** Python 3.x
-- **Discord SDK:** `discord.py` for commands and DMs
-- **Scheduler:** Internal job scheduler triggers reminders at the right local time
-- **Database:** NoSQL document-style storage for each user’s reminders
-    - Default: local DynamoDB
-    - Google Cloud option: Firestore (1 doc per user, with an array of reminders)
-- **AI / Persona Text (Optional):** `transformers` for generating message text in a given “voice”
-- **Secrets / Config:** `.env` + `python-dotenv`
-- **Logging:** Python `logging`
+- **Discord SDK:** `discord.py` for commands and DMs (other chat apps to come!)
+- **Chat Abstraction:** ChatManager + DiscordChatClient (chat-platform agnostic)
+- **AI Abstraction:** AIManager (provider-agnostic; no AI currently active)
+- **Scheduler:** Internal async loop (runs every 15 minutes or via HTTP endpoint)
+- **Config:** .env managed via python-dotenv
+- **Logging:** Standard Python logging
 
 **High-Level Flow:**
 ```text
@@ -83,12 +71,9 @@ Example reminder object (conceptual):
 }
 
 ## 🧩 Future Enhancements
-- 🔊 Dynamic persona text generation so you don’t get the same line every morning. 
-
-
+- 🔊 Dynamic persona text generation so you don’t get the same line every morning.
 
 ## Installation
-
 1. Clone the repository:
    ```bash
    git clone https://github.com/your_username/meds-reminder-bot.git
@@ -128,3 +113,7 @@ Database schema Explanation
     !dr: Delects a specific reminder
     !help: Displays available commands
 
+## 💡 Disclaimer Reminder
+    This project is built for people, not patients.
+    It’s designed to remind, encourage, and motivate, but never to diagnose or treat.
+    Always follow your healthcare provider’s instructions.
