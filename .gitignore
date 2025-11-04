@@ -13,3 +13,10 @@ env/
 
 # Logs
 logs/
+
+# secrets
+.env
+*.env
+src/.env
+database/*.db
+
