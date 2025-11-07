@@ -1,10 +1,10 @@
-# src/cogs/reminders_cog.py
+from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime
-from typing import List, Tuple
-import pytz
+from typing import List, Tuple, Optional
 
+import pytz
 from discord.ext import commands, tasks
 
 logger = logging.getLogger(__name__)
@@ -13,9 +13,10 @@ logger = logging.getLogger(__name__)
 class RemindersCog(commands.Cog):
     """
     Medication reminder commands + minute-precision dispatcher.
-    - Auto-dispatch runs every minute (via tasks.loop)
-    - Uses SQLite DAO/Manager under the hood
-    - Sends DMs through platform-agnostic ChatManager (bot.chat)
+
+    - Background task runs every minute (discord.ext.tasks)
+    - Uses RemindersManager + RemindersDAO under the hood
+    - Sends DMs via platform-agnostic ChatManager (attached on bot as `bot.chat`)
     - Guarded init so commands still register even if init fails
     """
 
@@ -23,27 +24,29 @@ class RemindersCog(commands.Cog):
         self.bot = bot
         self.manager = None
         self.controller = None
-        self._init_error: str | None = None
+        self._init_error: Optional[str] = None
 
         logger.info("RemindersCog: initializing...")
         try:
-            # Lazy imports so a failure here doesn't stop command registration
+            # Lazy imports so command registration isn't blocked if init fails
             from src.services.database_manager import DatabaseManager
             from src.dao.reminders_dao import RemindersDAO
             from src.services.reminders_manager import RemindersManager
             from src.controllers.reminders_controller import RemindersController
 
-            db = DatabaseManager(self.bot.config)  # bot.config is set in bot.py
+            # Build DB/DAO/Manager with config from bot
+            db = DatabaseManager(self.bot.config)
             dao = RemindersDAO(db)
             self.manager = RemindersManager(
                 dao,
                 default_tz=self.bot.config.get_default_timezone(),
-                chat_id=1,  # chats table seeds 'discord' as id=1
+                chat_id=1,                  # 'discord' seeded as id=1 in chats table
+                config=self.bot.config,     # pass through AI/paths config
             )
 
-            # Controller may or may not take `bot` in ctor
+            # Controller (prefer signature with bot; fall back if not present)
             try:
-                self.controller = RemindersController(self.manager, self.bot)  # preferred
+                self.controller = RemindersController(self.manager, self.bot)
             except TypeError:
                 self.controller = RemindersController(self.manager)
                 setattr(self.controller, "bot", self.bot)
@@ -56,20 +59,17 @@ class RemindersCog(commands.Cog):
 
     # ---------- lifecycle: start/stop the every-minute dispatcher ----------
     async def cog_load(self):
-        """Start the auto dispatcher when the cog is loaded."""
         if not self.auto_dispatch.is_running():
             self.auto_dispatch.start()
             logger.info("RemindersCog: auto_dispatch started (every 1 minute)")
 
     async def cog_unload(self):
-        """Stop the auto dispatcher when the cog is unloaded."""
         if self.auto_dispatch.is_running():
             self.auto_dispatch.cancel()
             logger.info("RemindersCog: auto_dispatch stopped")
 
     # ---------- internal helpers ----------
-    def _check_ready(self) -> str | None:
-        """Return error message if not ready, else None."""
+    def _check_ready(self) -> Optional[str]:
         if self._init_error:
             return f"Init error: {self._init_error}"
         if not self.manager or not self.controller:
@@ -79,10 +79,13 @@ class RemindersCog(commands.Cog):
         return None
 
     async def _send_after_delay(self, user_id: str, text: str, delay: float):
-        if delay > 0:
-            await asyncio.sleep(delay)
-        await self.bot.chat.send_dm(user_id, text)
-        logger.info("Sent reminder to %s", user_id)
+        try:
+            if delay > 0:
+                await asyncio.sleep(delay)
+            await self.bot.chat.send_dm(user_id, text)
+            logger.info("Sent reminder to %s", user_id)
+        except Exception as e:
+            logger.exception("Send failed to %s: %s", user_id, e)
 
     # ---------- every-minute loop (minute precision, no dupes) ----------
     @tasks.loop(minutes=1)
@@ -98,15 +101,23 @@ class RemindersCog(commands.Cog):
             hhmm = now.strftime("%H:%M")
             logger.info("Dispatch check at %s", hhmm)
 
-            # Manager should expose get_due_at_minute(hhmm) -> List[(user_id, persona, label, send_at_dt)]
+            # Manager returns: List[(user_id, persona, label, send_at_dt)]
             due: List[Tuple[str, str, str, datetime]] = await self.manager.get_due_at_minute(hhmm)
-
             if not due:
                 logger.info("No reminders due at %s", hhmm)
                 return
 
             for user_id, persona, label, send_at in due:
-                text = f"[{persona}] Reminder: {label}"
+                # Optional username enrichment
+                user_name: Optional[str] = None
+                try:
+                    user = await self.bot.fetch_user(int(user_id))
+                    if user and user.name:
+                        user_name = user.name
+                except Exception:
+                    pass
+
+                text = await self.manager.render_message(persona, label, user_name=user_name)
                 delay = max(0.0, (send_at - now).total_seconds())  # usually 0s
                 self.bot.loop.create_task(self._send_after_delay(user_id, text, delay))
 
@@ -148,12 +159,23 @@ class RemindersCog(commands.Cog):
             "`!helpme`           - show this help message\n"
         )
 
-    # Optional: manual trigger for testing (still works, minute-precision)
     @commands.command(name="runbatch")
     async def runbatch_cmd(self, ctx: commands.Context):
+        """Manual trigger for testing: run minute-precision dispatch now."""
         await ctx.send("Running minute-precision dispatch for the current time…")
-        await self.auto_dispatch()  # call once immediately
+        await self.auto_dispatch()  # run once immediately
         await ctx.send("Dispatch attempt complete.")
+
+    @commands.command(name="aistatus")
+    async def aistatus(self, ctx: commands.Context):
+        err = self._check_ready()
+        if err:
+            await ctx.send(f"❌ {err}")
+            return
+        ai = self.manager.ai
+        await ctx.send(
+            f"AI provider={ai.provider}, model={ai.model}, enabled={ai.enabled}, host={ai.ollama_host}"
+        )
 
 
 async def setup(bot: commands.Bot):

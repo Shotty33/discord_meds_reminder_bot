@@ -2,11 +2,8 @@ import asyncio
 import logging
 import discord
 from discord.ext import commands
-
 from src.utils.config_loader import ConfigLoader
 from src.infra.cron_http import start_http_server
-
-# ⬇️ NEW: import chat manager and adapter
 from src.services.chat_manager import ChatManager
 from src.adapters.chat.discord_client import DiscordChatClient
 

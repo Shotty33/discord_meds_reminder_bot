@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 
 class DatabaseManager:
     def __init__(self, config: ConfigLoader):
-        self._path = config.get_sqlite_path()
+        self._path = config.get_sqlite_db_path()
         Path(self._path).parent.mkdir(parents=True, exist_ok=True)
 
         self._conn = sqlite3.connect(self._path, check_same_thread=False)
