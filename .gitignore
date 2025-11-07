@@ -16,7 +16,7 @@ logs/
 
 # secrets
 .env
-*.env
-src/.env
+.env
 database/*.db
+*.sqbpro
 
