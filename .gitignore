@@ -14,9 +14,5 @@ env/
 # Logs
 logs/
 
-# secrets
+# Environment
 .env
-.env
-database/*.db
-*.sqbpro
-
